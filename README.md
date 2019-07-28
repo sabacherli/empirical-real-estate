@@ -8,4 +8,6 @@ The courses are:
 - Real Estate Economics (REE)
 - Real Estate Finance (REF)
 
+Personally, I enjoyed Empirical Real Estate Finance the most, followed by Real Estate Economics.
+
 The data files used for EREF_Assignment_2 were downloaded for the State Government of Victoria's website.
