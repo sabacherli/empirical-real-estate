@@ -24,7 +24,7 @@ Hint: use the | operator, quantile(), and dat1$size[]. (4 P)
 
 ```{r}
 # set working directory
-# ("/Users/samu_hugo/Google Drive/Career/Education/Universität St. Gallen/3_Fall 2018/Empirical Real Estate Finance (4)/Working Directory")
+# 
 
 # import ACC_data.txt
 ACC <- read.table("ACC_data.txt", header = T)
@@ -49,7 +49,7 @@ Q90 <- quantile(ACC3$Size, probs = 0.9)
 # remove all entries in the data frame that have a size above the 90th percentile (and ordered by size)
 ACC3.Q90 <- ACC3[order(ACC3$Size),]
 for (row in 1:nrow(ACC3.Q90)) {
-  if(ACC3.Q90[row, "Size"] > Q90) {
+  if (ACC3.Q90[row, "Size"] > Q90) {
     ACC3.Q90 <- ACC3.Q90[-row,]
   }
 }
