@@ -1,0 +1,163 @@
+---
+title: 'Assignment 2: Hedonic Regression'
+author: "Samuel Abächerli"
+date: "11/5/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1: Hedonic Regression using Data from Kaggle.com (15 P)
+
+Go to Kaggle.com and download a house price dataset that has information on the individual property level. Make sure it contains typical variables that are used in hedonic house price models such as age, number of rooms, size, and geo codes. Import the data into R. Explore the data set, plot the location of the properties in a meaningful way and run a hedonic house price regression with the aim of making an educated guess about the value of a counterfactual property. In this assignment, you are relatively free to use the data in a way that you see fit. You can stick to the code we used in the tutorial or explore other aspects that we have not.
+
+Hint: Since ggmap is currently not working properly you may want to try the maps package which can plot US states and counties, e.g. map(“state”) or map(“county”)
+
+## Requirements
+Set your working directory
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+#setwd("/Users/samu_hugo/Google Drive/Career/Education/Universität St. Gallen/3_Fall 2018/Empirical Real Estate Finance (4)/Working Directory")
+```
+
+Make sure you have all the required packages installed. If not, run the commands in the console. I won't let me have these codes executable in the markdown file.
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+#install.packages("rgdal")
+#install.packages("Hmisc")
+#install.packages("devtools")
+```
+
+Load all the required packages
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(rgdal)
+library(Hmisc)
+library(devtools)
+```
+
+Install ggbiplot from github, which required devtools to be loaded first
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# install_github("vqv/ggbiplot")
+library(ggbiplot)
+```
+
+## Data Preparation
+Make sure that you have all relevant files in your working directory before you import the data. The roads files will need further declaration of where it is stored below.
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+melb_data.original <- read.csv("melb_data.csv", sep = ",", header = T)
+```
+
+Remove all entries that are not complete for the variables that are important. I require complete longnitude and lattitude to map the data points on the map, and the observtions for the variables used for my regression should be complete.
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+melb_data.complete <- melb_data.original[complete.cases(melb_data.original$Longtitude, melb_data.original$Lattitude, melb_data.original$Price, melb_data.original$Rooms, melb_data.original$Bedroom2, melb_data.original$Bathroom, melb_data.original$Landsize, melb_data.original$BuildingArea, melb_data.original$YearBuilt, melb_data.original$Car, melb_data.original$Distance), ]
+```
+
+Create and assign price categories with six quantile groups
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+melb_data.complete$PriceCategory <- cut2(x = melb_data.complete$Price, g = 6)
+```
+
+Compute age of each house at the time of the sale
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+melb_data.complete$Age <- as.numeric(format(as.Date(melb_data.complete$Date, format = "%d/%m/%Y"), "%Y")) - melb_data.complete$YearBuilt
+```
+
+## Exploring the Data
+Partition for one plot and then import shapefile to generate map (this is the best map I found after many attemps)
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+par(mfrow = c(1,1))
+```
+
+Import shapefile to generate map - this is the best map I found
+**Remember to adjust the dsn path according to where you save you j5505_road files. dsn is the path and layer is the file name without extensions**
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+melb_map <- readOGR(dsn = "/Users/samu_hugo/Google Drive/Career/Education/Universität St. Gallen/3_Fall 2018/Empirical Real Estate Finance (4)/Working Directory/Melbourne Shapefiles/Transport/", layer = "j5505_roads")
+```
+
+Plot map with the scale limited set to the min and max of the longnitude and lattitude of the complete data. The color of the data points correspond to the price categories they belong to.
+```{r echo=T, fig.width=10, message=FALSE, warning=FALSE, paged.print=FALSE}
+plot(melb_map, main = "Melbourne, Australia")
+points(melb_data.complete$Lattitude ~ melb_data.complete$Longtitude, type = "p", pch = 16, col = melb_data.complete$PriceCategory, cex = 0.4)
+legend(max(melb_data.complete$Longtitude), max(melb_data.complete$Lattitude), levels(melb_data.complete$PriceCategory), pch = 16, col = 1:length(melb_data.complete$PriceCategory), title = "House Prices")
+```
+
+Plot boxplots with non-factorial and for the regression relevant variables
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+par(mfrow = c(3,3))
+boxplot(melb_data.complete$Rooms, main = "Rooms")
+boxplot(melb_data.complete$Price, main = "Price")
+boxplot(melb_data.complete$Bedroom2, main = "Bedroom")
+boxplot(melb_data.complete$Bathroom, main = "Bathroom")
+boxplot(melb_data.complete$Landsize, main = "Landsize")
+boxplot(melb_data.complete$BuildingArea, main = "BuildingArea")
+boxplot(melb_data.complete$Age, main = "Age")
+boxplot(melb_data.complete$Distance, main = "Distance")
+boxplot(melb_data.complete$Car, main = "Car")
+```
+
+Plot scatterplot of price versus the same variables, except for the price
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+par(mfrow = c(3,3))
+plot(Price ~ Rooms, data = melb_data.complete, pch = 16, col = rgb(0.9,0,0,0.4), main = "Rooms")
+plot(Price ~ Bedroom2, data = melb_data.complete, pch = 16, col = rgb(0.9,0,0,0.4), main = "Bedrooms")
+plot(Price ~ Bathroom, data = melb_data.complete, pch = 16, col = rgb(0.9,0,0,0.4), main = "Bathrooms")
+plot(Price ~ Landsize, data = melb_data.complete, pch = 16, col = rgb(0.9,0,0,0.4), main = "Landsize")
+plot(Price ~ BuildingArea, data = melb_data.complete, pch = 16, col = rgb(0.9,0,0,0.4), main = "Building Area")
+plot(Price ~ Age, data = melb_data.complete, pch = 16, col = rgb(0.9,0,0,0.4), main = "Age")
+plot(Price ~ Distance, data = melb_data.complete, pch = 16, col = rgb(0.9,0,0,0.4), main = "Distance")
+plot(Price ~ Car, data = melb_data.complete, pch = 16, col = rgb(0.9,0,0,0.4), main = "Car")
+```
+
+## Principle Component Analysis
+Check class of each variable
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+lapply(melb_data.complete, class)
+```
+
+Create a PCA disregarding all factorial and non-relevant variables. The variables are shifted to be zero centered and scales to have unit variance before the analysis takes place.
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+melb_data.pca <- prcomp(melb_data.complete[,c(4,10,12,13,14,15,16,24)], center = T, scale. = T)
+```
+
+42.15 percent of total variance is explained through the first out of eight principal components. 
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+summary(melb_data.pca)
+```
+
+Plots PC1 versus PC2 with a circle at the center of the dataset and groups constructed based on the price category of the observation apart from age, distance, landsize and building area. The data points which are clustered together have similar characteristics based on the 8 variables used. The graph shows, for example, that the most expensive houses are characterized by high values for building area, rooms, bedrooms, bathrooms compared to those of the lowest price class, or that the lowest price category has large variances in the landsize and distance.
+```{r echo=T, message=FALSE, warning=FALSE, paged.print=FALSE}
+ggbiplot(melb_data.pca, circle = T, choices = c(1,2), groups = melb_data.complete$PriceCategory) + coord_cartesian(xlim = c(-5, 5), ylim = c(-5, 5))
+```
+
+## Hedonic Regression
+An OLS regression with the eight selected variables as the common factors. For instance, an increase in one car space, everything else held constant, would be predicted to lead to an increase of 5.651e+04 in the house price.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+OLS1 <- lm(Price ~  Landsize + BuildingArea + Age + Distance + Car + Rooms + Bedroom2 + Bathroom, data = melb_data.complete)
+summary(OLS1)
+```
+
+From the boxplot and the price ~ variables plots we can observe that there are strong outliers in the data, whose extraordinary value does not seem to be explained by the variables in the data set. Thus, these largest values are removed, as I believe them not to be indicative of the normal house and distort my prediction, depsite the removal of data being considered statistical malpractice by some.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+melb_data.complete <- melb_data.complete[-which(melb_data.complete$Age == max(melb_data.complete$Age)),]
+melb_data.complete <- melb_data.complete[-which(melb_data.complete$BuildingArea == max(melb_data.complete$BuildingArea)),]
+melb_data.complete <- melb_data.complete[-which(melb_data.complete$Landsize == max(melb_data.complete$Landsize)),]
+```
+
+The removal of the 3 outliers naturally leads to an increase of R-squared, although the change is very small, which is to be expected due to the large amounts of observations in comparison to those being removed.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+OLS2 <- lm(Price ~  Landsize + BuildingArea + Age + Distance + Car + Rooms + Bedroom2 + Bathroom, data = melb_data.complete)
+summary(OLS2)
+```
+
+The adjusted R-squared can slightly be improved by adding squared factor loadings into the regression
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+OLS3 <- lm(Price ~  Landsize + I(Landsize^2) + BuildingArea + Age + Distance + I(Distance^2) + Car + Rooms + Bathroom, data = melb_data.complete)
+summary(OLS3)
+```
+
+## Counter Factual
+A prediction is made for a counter factual property with a 25 percent confidence interval and the type of interval calculation being prediction
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+cf <- data.frame(Rooms = 4, Bedroom2 = 4, Bathroom = 2, Landsize = 200, BuildingArea = 150, Age = 30, Distance = 6.4, Car = 2)
+predict(OLS2, newdat = cf, interval = "prediction", level = 0.25)
+```

@@ -1,0 +1,85 @@
+---
+title: "Assignment 1"
+author: "Samuel Abächerli"
+date: "10/31/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1: Indexing
+
+Indexing is an important part of working with data. Many people use specialized data bank
+programs like Acess or SQL for that. If you are good with R, you don’t need a specialized
+program. Import the data file ACC_data.txt into R. Generate a subset of this data as follows:
+
+a) properties located in North Carolina or South Carolina
+Hint: an easy solution is the | operator. Feel like getting an extra point? Try the %in%
+operator (4 P)
+
+b) The 90% quantile of the property size of those properties that are located in Tallahassee or Athens.
+Hint: use the | operator, quantile(), and dat1$size[]. (4 P)
+
+```{r}
+# set working directory
+# ("/Users/samu_hugo/Google Drive/Career/Education/Universität St. Gallen/3_Fall 2018/Empirical Real Estate Finance (4)/Working Directory")
+
+# import ACC_data.txt
+ACC <- read.table("ACC_data.txt", header = T)
+
+# 1a
+# PROPERTIES LOCATED IN NORTH OR SOUTH CAROLINA WITH | OPERATOR
+ACC1 <- ACC[ which(ACC$State.Province.Country == "North Carolina, USA" | ACC$State.Province.Country == "South Carolina, USA"),]
+
+# PROPERTIES LOCATED IN NORTH OR SOUTH CAROLINA WITH %IN%
+# creating subsets of ACC where the state is either South Caroline and North Carolina
+ACC.SouthCarolina <- ACC[ACC$State.Province.Country %in% "South Carolina, USA",]
+ACC.NorthCarolina <- ACC[ACC$State.Province.Country %in% "North Carolina, USA",]
+# binding the two data frames by row
+ACC2 <- rbind(ACC.NorthCarolina, ACC.SouthCarolina)
+
+# 1b
+# 90% QUANTILE WITH | OPERATOR
+# subsetting ACC where the city is either Athens or Tallahassee
+ACC3 <- ACC[ which(ACC$City == "Athens" | ACC$City == "Tallahassee"),]
+# calculate the 90 percent quantile with regard to the size
+Q90 <- quantile(ACC3$Size, probs = 0.9)
+# remove all entries in the data frame that have a size above the 90th percentile (and ordered by size)
+ACC3.Q90 <- ACC3[order(ACC3$Size),]
+for (row in 1:nrow(ACC3.Q90)) {
+  if(ACC3.Q90[row, "Size"] > Q90) {
+    ACC3.Q90 <- ACC3.Q90[-row,]
+  }
+}
+```
+
+## Problem 2: tapply()
+
+Import the data file ACC_data.txt into R. Compute the average property size for each U.S.
+state. Sort the mean size in decreasing order and plot them using barplot().
+Hint: For this problem you need the commands tapply(), sort(), and barplot(). Don’t like the
+way bar labels are displayed on the x-axis? Fix the problem and gain an extra point! (7 P)
+
+```{r}
+# AVERAGE PROPERTY SIZE OF EACH STATE
+# calculate the mean for each state
+ACC4 <- tapply(ACC$Size, ACC$State.Province.Country, mean)
+# order the data alphabetically
+ACC4.ordered <- ACC4[order(names(ACC4))]
+# set the names to the abbreviations of the states
+names(ACC4.ordered) <- c("AL", "AZ", "CA", "CO", "FL", "GA", "IL", "IN", "IA", "KY", "LA", "MI", "MN", "MS", "NE", "NV", "NJ", "NY", "NC", "OH", "OK", "PA", "SC", "TN", "TX", "UNDEF", "VA", "WV")
+# sort the data in decreasing order
+ACC4.sorted <- sort(ACC4.ordered, decreasing = T)
+```
+
+## Plots
+
+Average property size of each state in decreasing order with abbreviations as labels.
+
+```{r ACC4.sorted}
+# plot the data in a bar plot with vertical labels
+barplot(ACC4.sorted, las = 2)
+```
+

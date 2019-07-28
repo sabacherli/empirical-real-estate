@@ -1,0 +1,154 @@
+---
+title: "Assignment 4"
+author: "Samuel Abächerli"
+date: "12/1/2018"
+output:
+  html_document:
+    highlight: textmate
+    theme: paper
+    toc_depth: 4
+  pdf_document:
+    toc_depth: '4'
+header-includes: \usepackage{mathtools}
+---
+
+<style type="text/css">
+.main-container {
+  margin-left: auto;
+  margin-right: auto;
+  font-size: 14px
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, paged.print = FALSE)
+
+install.packages("rgdal")
+install.packages("spdep")
+
+library(rgdal) # package for using readOGR command
+library(spdep) # package for estimating Spatial Autoregressive (SAR) models
+```
+
+## Problem 1: The Spatial Durbin Model (SDM) **(15 P)**
+
+*In the tutorial, we used the spatial autoregressive model (SAR) that allows for spatial
+diffusion of house prices to neighboring regions. The SDM model is an extension that also
+incorporates spatial diffusion of the regressors.*  
+
+*a.) Use the Swiss MS region data set to estimate the following SDM model using
+maximum likelihood:*  
+
+<center>$Y = \rho WY + X\beta + \lambda WX + e$</center>
+<p></p>
+*the variable Y represents house prices and the variable X contains an intercept and population
+growth. This model also allows for population growth to spill over to neighboring regions
+directly rather than having only indirect effects via house prices.
+Use the following likelihood function for the SDM model:*
+
+<center>$\varepsilon = Y - \rho WY - X\beta + \lambda WX$</center>  
+<center>$\ln \mathcal{L} = \ln(|I_n -  \rho W|) - \frac{n}{2}\ln(2\pi\sigma^2) - \frac{\varepsilon^{\prime}\varepsilon}{2\sigma^2}$</center>
+<p></p>
+
+
+```{r results='hide'}
+CH.data <- read.table("CH_Daten.txt", header = TRUE) # swiss house price data set for 106 MS regions
+CH.map <- readOGR(dsn = ".", layer = "MS_Gebiete") # import Swiss MS region data
+```
+
+```{r fig.height=10, fig.width=20}
+
+CH.data$hp <- CH.data$hp/100000 # avoid scaling problem
+CH.data$dlpop <- CH.data$dlpop*100 # avoid scaling problem
+
+y <- as.matrix(CH.data$hp) 
+colnames(y) <- "House Prices"
+x <- cbind(1,CH.data$dlpop) 
+colnames(x) <- c("Intercept", "Population Growth")
+
+W.nb <- tri2nb(coordinates(CH.map)) # creates weight matrix as an nb object
+W <- nb2mat(W.nb) # creates a row-stochastic weight matrix
+I <- diag(length(W.nb)) # required later for task d
+
+MLE.SDM <- function(theta,Y,X) { # theta is the coefficient vector
+  beta <- theta[1:2]
+  sigma <- theta[3]
+  rho <- theta[4]
+  lambda <- theta[5]
+  n <- nrow(X)
+  I <- diag(n)
+  epsilon <- Y - rho*W %*% Y - X %*% beta - lambda*W %*% X[,2]
+  logl <- log(det(I - rho*W)) - (n/2)*log(2*pi*sigma^2) - (1/(2*sigma^2))*(crossprod(epsilon)) # log likelihood function
+  return(-logl) # optim performs minimization, but we want to maximize our loglikelihood function, hence the minus
+}
+
+SDM <- optim(c(1,1,1,0.5,0.5), MLE.SDM, Y = y, X = x, method = "BFGS", control = list(maxit = 1000, trace = TRUE)); SDM
+```
+
+```{r}
+W.listw <- nb2listw(W.nb) # lagsarlm requires a listw object
+SDM.crosscheck <- lagsarlm(hp ~ dlpop, W.listw, data = CH.data, type = "mixed", method="eigen", quiet = TRUE); SDM.crosscheck # cross checking the output of the above estimation
+```
+
+
+*b.) Compare the coefficient for population growth from the SDM model with that of the
+SAR model. What do you think is the reason behind the difference?* **(2 P)**
+
+```{r}
+SAR <- lagsarlm(hp ~ dlpop, W.listw, data = CH.data, type = "lag", method="eigen", quiet = TRUE); SAR # use type "lag" for the SAR model
+```
+
+**The SDM model allows for the spatial diffusion of the population growth. The coefficient for population growth is the first round direct effect. The canton will benefit from feedback effects from the population growth in other cantons due to the prior spillover effects. The SAR model can't take this into account, but tries to incorporate it somehow in its estimate of the coefficient, just like the OLS method overestimates the first round direct effect, because it can't take the spatial diffusion of house prices into account. Thus, the SDM estimate for the coefficient of population growth is lower than that of the SAR model.**
+
+*c.) Which of the two models is preferred in terms of goodness of fit (compare the
+likelihood values)* **(1 P)**  
+
+```{r}
+SDM.crosscheck$LL #SDM 
+SAR$LL #SAR
+```
+
+**The SAR model is to be preferred due to the lower likelihood value. Optim performs minimization of the MLE function, so the lower value is preferred, rather than the maximum, which is usually preferred. Because optim performs minimization is also the reason why we must return -logl in the function when we construct it manually.**
+
+*d.) According to the Bundesamt für Statistik, average population growth in 2018 is
+forecasted to be 0.78% in St.Gallen, 0.34% in Appenzell A.Rh. and 0.09% in Apenzell
+I.Rh. (see https://www.bfs.admin.ch/bfs/de/home/statistiken/bevoelkerung/zukuenftige-entwicklung/kantonale-szenarien.assetdetail.335778.html). Use your SDM estimates
+and construct a map that shows how such a population growth in 2018 might affect
+house prices in the long run.* **(4 P)**
+
+
+```{r fig.height=15, fig.width=30}
+
+rho <- SDM.crosscheck$rho
+beta <- as.matrix(SDM.crosscheck$coefficients[1:2])
+lambda <- SDM.crosscheck$coefficients[3]
+
+X <- cbind(1, CH.data$dlpop)
+fitted <- solve(I - rho*W) %*% X %*% beta + solve(I - rho*W) %*% (lambda*W %*% X[,2])
+
+X2 <- X
+row.names(X2) <- CH.data$MS.name
+X2["St.Gallen",2] <- 0.78 # introduce the shock by manually changing the number
+X2["Appenzell A.Rh.",2] <- 0.34 # intoduce the shock by manually changing the number
+X2["Appenzell I.Rh.",2] <- 0.09 # intoduce the shock by manually changing the number
+fitted2 <- solve(I - rho*W) %*% X2 %*% beta + solve(I - rho*W) %*% (lambda*W %*% X2[,2])
+
+effect <- (fitted2 - fitted)*100000/100
+
+color <- rep(1,nrow(effect))
+i <- 0
+for (n in effect) {
+  i <- i + 1
+  if (n < -5) {
+    color[i] <- rgb(0.9,0,0,abs(n)/abs(min(effect)))
+  } else if (n > 0) {
+    color[i] <- rgb(0,0.9,0,n/abs(min(effect)))
+  } else {
+    color[i] <- rgb(0,0,0,0)
+  }
+}
+plot(CH.map, col = color) # to scale between 0 and 1, because alpha value can not be larger than 1
+text(coordinates(CH.map)[effect < -5 | effect > 0,], labels = as.character(round(effect[effect < -5 | effect > 0]), 0), cex = 1.5)
+```
+
+**The change of 0.3430, -0.7995, and -0.0330 percentage points respectively have a minial impact on average house prices. This scenario doesn't include the 2018 changes for the other cantons.**

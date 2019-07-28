@@ -1,0 +1,142 @@
+---
+title: "Assignment 3"
+author: "Samuel Abächerli"
+date: "29/11/2018"
+output: 
+  html_document: 
+    highlight: textmate
+    theme: paper
+    toc_depth: 4
+---
+
+<style type="text/css">
+.main-container {
+  margin-left: auto;
+  margin-right: auto;
+  font-size: 16px
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12, fig.height = 8)
+```
+
+
+## Panel Regression
+
+The plm package will be used to calculate linear models for panel data.  
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(plm)
+```
+
+Import the data file.
+```{r warning=FALSE, paged.print=FALSE}
+bul_data <- read.table("Bulwien_Gesa.txt", header = T)
+# converts the data into a pdata frame, so R can tell that it's dealing with panel data
+bul_data.indexed <- pdata.frame(bul_data, index = c("City", "Jahr"))
+```
+
+***
+
+### Problem 1: Panel Regression with Interaction Terms (4 P)
+  
+*Use the BulwienGesa data to estimate a fixed effects panel regression of office rents on its first order lag, office employment, the vacancy rate, and the first oder lag of the office stock. Use logs for all variables. Investigate the hypothesis that different rent contracts lead to different degrees of rent persistence across cities.*  
+
+```{r}
+# the vacany rate's natural unit of measurement is already percentage points, thus no log is taken
+FE.rent <- plm(log(rent) ~  log(emp) + v + log(lag(stock)) + log(lag(rent)) + City:log(lag(rent)), model = "within", effect = "twoways", data = bul_data.indexed)
+```
+
+```{r warning=FALSE}
+options(width = 200)
+summary(FE.rent)
+```
+
+If employment increases by one percent, everything else held constant, the rents are predicted to increase by 15.8%. If the vacancy rate increases by one percent, the rents are in genreal predicted to decrease by 3.1%. If last years stock increased by one percent, this years rents are predicted to decrease by 11.8%.
+
+The coefficient of the lagged dependent variable for each city, the interaction term, tells us how persistent rent prices in each city are. The first coefficient with regards to lagged rent is the coefficient for Berlin, while all other coefficients of the interaction terms are the difference to Berlin. This means that the total coefficient of last years prices on todays prices in Bochum is about 0.925. Such a coefficient which is relatively close to one would suggest that rent prices throughout the city are relatively persistant. This could be explained if the majority of rent contracts are long-term rent contracts.
+
+```{r warning=FALSE}
+labels <- as.vector(unique(bul_data$City)) # it doesn't handle the german Umlaute properly, leading to misrepresentations in the graph
+labels.manual <- c("Bochum", "Bonn", "Bremen", "Chemnitz", "Cottbus", "Dortmund", "Dresden", "Duisburg", "Duesseldorf", "Frankfurt", "Freiburg", "Halle", "Hamburg", "Hannover", "Karlsruhe", "Kassel", "Kiel", "Koeln", "Leipzig", "Leverkusen", "Luebeck", "Magdeburg", "Mainz", "Muenchen", "Muenster", "Neuss", "Nuernberg", "Oberhausen", "Potsdam", "Regendburg", "Rostock", "Saarbruecken", "Schwerin", "Stuttgart", "Ulm", "Wuerzburg", "Wiesbaden", "Wilhemshaven", "Wolfsburg", "Wuppertal", "Zwickau")
+par(mar = c(10.1,4.1,10.1,2.1))
+barplot(FE.rent$coefficients[5:45], ylab = "Difference to Berlin", names.arg = labels.manual, las = 2, main = "Indicator of Rent Persistence")
+```
+
+The values in the boxplot show the differences in the coefficients for the log lagged rents for each city compared to Berlin, which has a coefficient of 0.569. Cities with high values, close to one, have greater rent persistence. 
+
+```{r warning=FALSE}
+summary(fixef(FE.rent, effect = "individual", type = "level"))
+summary(fixef(FE.rent, effect = "time", type = "level"))
+```
+
+By setting type = "level", the fixed effects are returned in levels.
+
+***
+
+### Problem 2: Forecasting Vacancy Rates (11 P)
+  
+*Use indexing to get a subset of the BulwienGesa data containing the cities Frankfurt, Hamburg, Berlin, and Stuttgart. You may need the %in% operator to do this (see page 78 and 79 of Ch.2 of The R Book). The aim will be to get a forecast of the vacancy rate of these 4 cities and to evaluate the goodness of this forecast.  *
+```{r}
+# creates a subset of data including only the cities of Stuttgart, Berlin, Hamburg and Frankfurt
+bul_data.subset <- subset(bul_data.indexed, City %in% c("Stuttgart", "Berlin", "Hamburg", "Frankfurt.(Main)"))
+```
+
+*(a) Regress the vacancy rate on last year’s vacancy rate in a fixed effects panel regression with city and year fixed effects. To obtain the fitted values from this regression, we need to extract the residuals from the estimated equation. However, the regression lag eliminates the first observation so that the time series of residuals will not match in length. Eliminate the first observation (year 1990) from the 4 city data frame. Now the residuals and the data frame match. Add the fitted values to your data frame (the difference of actual vacancy rates and regression residuals).* **(4 P)**
+```{r}
+# within is used to tell plm to use a fixed effects model, twoways effect is used to calculate city and year fixed effects
+FE.v <- plm(v ~ lag(v), data = bul_data.subset, model = "within", effect = "twoways")
+# subset is used to create a subset of data excluding all observations where the year was 1990
+bul_data.adjusted <- bul_data.subset[-which(bul_data.subset$Jahr == 1990),]
+# the differences are added to the data frame
+bul_data.adjusted$Fitted <- bul_data.adjusted$v - FE.v$residuals
+```
+
+*(b) Use the par(mfrow = c(2,2)) command to plot the actual vacancy rate together with the fitted values in 4 graphs (one for each city). To obtain a time axis for the plot you may want to use the ts() command (for example, try ts(1:10, frequency = 4, start = c(1959,2)) to see how it works) but there are other ways of doing this.* **(4 P)**
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+# partions the plot space for 2 plots per row and 2 per column
+par(mfrow = c(2,2))
+# creates a timeline from 1991 to 2008 with yearly increases
+timeline <- ts(1991:2008, frequency = 1, start = 1991)
+plot(v ~ timeline, data = bul_data.adjusted[which(bul_data.adjusted$City == "Berlin"),], main = "Berlin", col = "red", xlab = "Year", ylab = "Vacancy", ylim = c(0,20), xaxt = "n", xlim = c(1991,2008))
+axis(1, at = 1991:2008)
+legend(x = "topleft", legend = c("Actual Vacancy Rate", "Fitted Values"), col = c("red", "blue"), lty = 1:1, cex = 0.8)
+par(new = TRUE)
+plot(Fitted ~timeline, data = bul_data.adjusted[which(bul_data.adjusted$City == "Berlin"),], col = "blue", axes = F, xlab = "", ylab = "", ylim = c(0,20))
+plot(v ~ timeline, data = bul_data.adjusted[which(bul_data.adjusted$City == "Frankfurt.(Main)"),], main = "Frankfurt am Main", col = "red", xlab = "Year", ylab = "Vacancy", ylim = c(0,20), xaxt = "n", xlim = c(1991,2008))
+axis(1, at = 1991:2008)
+legend(x = "topleft", legend = c("Actual Vacancy Rate", "Fitted Values"), col = c("red", "blue"), lty = 1:1, cex = 0.8)
+par(new = TRUE)
+plot(Fitted ~ timeline, data = bul_data.adjusted[which(bul_data.adjusted$City == "Frankfurt.(Main)"),], col = "blue", axes = F, xlab = "", ylab = "", ylim = c(0,20))
+plot(v ~ timeline, data = bul_data.adjusted[which(bul_data.adjusted$City == "Hamburg"),], main = "Hamburg", col = "red", xlab = "Year", ylab = "Vacancy", ylim = c(0,20), xaxt = "n", xlim = c(1991,2008))
+axis(1, at = 1991:2008)
+legend(x = "topleft", legend = c("Actual Vacancy Rate", "Fitted Values"), col = c("red", "blue"), lty = 1:1, cex = 0.8)
+par(new = TRUE)
+plot(Fitted ~ timeline, data = bul_data.adjusted[which(bul_data.adjusted$City == "Hamburg"),], col = "blue", axes = F, xlab = "", ylab = "", ylim = c(0,20))
+plot(v ~ timeline, data = bul_data.adjusted[which(bul_data.adjusted$City == "Stuttgart"),], main = "Stuttgart", col = "red", xlab = "Year", ylab = "Vacancy", ylim = c(0,20), xaxt = "n", xlim = c(1991,2008))
+axis(1, at = 1991:2008)
+legend(x = "topleft", legend = c("Actual Vacancy Rate", "Fitted Values"), col = c("red", "blue"), lty = 1:1, cex = 0.8)
+par(new = TRUE)
+plot(Fitted ~ timeline, data = bul_data.adjusted[which(bul_data.adjusted$City == "Stuttgart"),], col = "blue", axes = F, xlab = "", ylab = "", ylim = c(0,20))
+
+# figure size is adjusted to 12 width and 8 height in the global chunk option
+# x-axis delimiters are increased for more detailed information
+```
+
+*(c) Use the tapply() function to compute the root mean squared error (RMSE) for each city. Remember that you can program a function in tapply “on the fly” using tapply(numeric variable, categorical variable, function(x) ...). It is easier if you compute the differences between actual and forecasted values, $(y−´y)$, prior to the tapply command.* **(3 P)**
+```{r}
+# squared differences are added to the data frame
+bul_data.adjusted$Differences <- (bul_data.adjusted$v - bul_data.adjusted$Fitted)^2
+# number of observations per city is calculated
+T <- nrow(bul_data.adjusted[which(bul_data.adjusted$City == "Berlin"),])
+# RMSE function is applied over all observations in the respective city
+RMSE <- tapply(bul_data.adjusted$Differences, bul_data.adjusted$City, function(x) sqrt((1/T)*sum(x)))
+# NA's are removed from the output, which occured for all other than the four cities for which the RMSE was calculated
+RMSE[!is.na(RMSE)]
+```  
+On average, the fitted values deviate from the acutal vacancy rates by 1.09, 1.53, 0.56, and 0.68 respectively. Thus, Hamburg has the best estimates.
+  
+  
+
+
+
