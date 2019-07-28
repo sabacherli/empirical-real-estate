@@ -1,5 +1,11 @@
 # real-estate-finance
 
-These are a collection of scripts I created in the context of assignments during my Master's degree in Banking & Finance at the University of St. Gallen in courses such as 'Empirical Real Estate Finance' and 'Real Estate Finance'.
+These are a collection of scripts I created in the context of assignments during my Master's degree in Banking & Finance at the University of St. Gallen.
 
-The data files used for Assignment 2 were downloaded for the State Government of Victoria's website.
+The courses are:
+
+- Empirical Real Estate Finance (EREF)
+- Real Estate Economics (REE)
+- Real Estate Finance (REF)
+
+The data files used for EREF_Assignment_2 were downloaded for the State Government of Victoria's website.
