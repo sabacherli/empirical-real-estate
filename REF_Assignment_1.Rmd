@@ -1,0 +1,117 @@
+---
+title: "Assignment 1"
+author: "Samuel Abächerli (14-610-208)"
+date: "3/24/2019"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Assignment 1: Introduction to Real Estate Finance with R
+
+Please send your solutions to this assignment in a pdf or html file generated in R Markdown to zeno.adams@unisg.ch. The deadline is 3/31/2019. Please note that: 
+1. The code has to be reproducible, i.e. pasting your code in any R console should generate the output that you send me in the file. 
+2. You should comment your code to show that you have understood the commands. 
+The assignment should not take more than 5 hours to solve. If you are stuck or repeatedly get the same error message you can contact me over skype (zeno.adams).
+
+## Problem 1
+
+Serious Sam has just obtained his master degree and started working in the real estate finance industry. He has planned to buy his own house in 10 years. The expected down payment for a house is around CHF 85,000. Sam decides to save a fixed part of his income each month. The market interest rate that he expects on his savings is 2% per year. How much does Sam has to save each month? **(3 P)**
+
+```{r}
+FV <- 85000 # down payment
+n <- 10 # years
+m <- 12 # monthly compounding
+i <- 0.02 # annual interest rate
+IF <- sum(sapply(0:(n*m-1), function(t) (1+i/m)^t)) # interest factor - first payment at the end of the first month; last payment not producing any interest
+MS <- FV / IF # monthly savings
+MS
+```
+
+## Problem 2
+
+A mortgage bank can lend out CHF 65,000 to a home buyer and receive monthly cash flows of CHF 800 for the next 9 years. What is the bank's IRR of this investment?
+
+*Hint 1: you have now n*m periods (n = years, m = 12)*
+*Hint 2: the estimated IRR will be a monthly IRR. Convert this to an annual value.* 
+*Hint 3: 1:n*m is not the same as 1:(n*m) !!* **(4 P)**
+
+```{r}
+M <- 65000 # mortgage
+n <- 9 # years
+m <- 12 # months
+PMT <- 800 # payments
+i.n <- 200000 # how many different interest rates to try
+IRR <- seq(from = 0.004, to = 0.006, length.out = i.n) # seq means sequence, index starting at 1
+difference <- numeric(i.n) # declares an array of length i.n containing zeros (numeric/double).
+for (j in 1:i.n) {
+PV <- PMT*sum(sapply(1:(n*m), function(t) 1/(1+IRR[j])^t)) # the present value of future payments using the interest rate factor, with the first payment occuring at the end of the first month, and the last payment at the end of the last month, not producing any interest
+difference[j] <- M - PV # IRR needs to fulfill the condition that PV of payments is equal to initial investment
+}
+IRR.year <- IRR[which.min(abs(difference))] * m ; IRR.year # yearly IRR - chooses the IRR with the smallest absolute difference and annualizes it
+sum(sapply(1:(n*m), function(t) 1/(1+IRR.year/m)^t)*PMT) # testing that the IRR is correct - should be close to M
+```
+
+
+## Problem 3 
+
+In practice, interest rates are usually denoted as annual rates but mortgages payments have to be made monthly, where the payment is (1 + i/12). 
+(a) Show that the Effective Annual Yield (EAY) of a 5% interest rate compounded monthly is more than 5%. **(1 P)** 
+
+```{r}
+i <- 0.05 # interest rate
+m <- 12 # months
+i.m <- (1 + i / m) # monthly interest rate
+i.y <- i.m^m - 1 ; i.y # effective annual yield 
+i.y > i # show that it is larger than 5%
+```
+
+(b) How much would the EAY be if payments would be compounded daily? **(1 P)** 
+
+```{r}
+i <- 0.05 # interest rate
+d <- 365 # days
+i.d <- (1 + i / d) # daily interest rate
+i.y <- i.d^d - 1 ; i.y # effective annual yield daily compounding
+```
+
+(c) You can also approach the question coming from the other side: What is the monthly compounded interest if the Effective Annual Yield (EAY) should be 5% as originally reported by the mortgage bank? **(1 P)**
+
+```{r}
+i <- 0.05 # interest rate
+m <- 12 # months
+i.m <- ((1 + i)^(1/m)) - 1 ; i.m * 12 # monthly compounded annual interest rate for an EAY of 5%
+i.y <- (1 + i.m)^m - 1 ; i.y # testing the EAY
+```
+
+
+*Hint: take a look at EAY.pdf for the relevant formulas (on StudyNet).*
+
+
+## Problem 4 
+
+As a real estate appraiser you plan to estimate the value of an office property using the DCF approach. The property is currently occupied by three firms that have long-term rent contracts. This allows for a precise computation of future cash flows. The expected cash flow for year 1 is expected to be CHF 130,000 and is expected to grow at an annual rate of 3%. The property is expected to be resold at the end of year 12. Comparable properties indicate that it could be sold for CHF 9,000,000. The discount rate for the DCF calculation is estimated to be 5%. Estimate the value of the property using the information given above. All payments are end of year payments. 
+
+*Hint 1: use the sapply function to generate the stream of future cash flows. Use the indexing operator [] to add the resale price to the 12th cash flow.*
+*Hint 2: Be careful when you compute the present value. The cash flows are not an annuity!* **(5 P)**
+
+```{r}
+CF.1 <- 130000 # first cash flow
+g <- 0.03 # growth rate
+n <- 12 # years
+CF.n <- 9000000 # resale price
+i <- 0.05 # discount rate
+CF <- sapply(0:(n-1), function (t) CF.1 * (1 + g)^t) # cash flow stream for end of year payments
+DCF <- sum(sapply(1:n, function (t) CF[t] / (1 + i)^t)) # discounted cash flow stream without resale price
+PV <- DCF + CF.n / (1 + i)^n ; PV # present value of object with resale price
+
+# or as mentioned in hint 1
+CF.Hint1 <- sapply(0:(n-1), function (t) CF.1 * (1 + g)^t) # cash flow stream for end of year payments
+CF.Hint1[12] <- CF.Hint1[12] + CF.n
+DCF.Hint1 <- sum(sapply(1:n, function (t) CF.Hint1[t] / (1 + i)^t)) ; DCF.Hint1 # discounted cash flow stream without resale price
+```
+

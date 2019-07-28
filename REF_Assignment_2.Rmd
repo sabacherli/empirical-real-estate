@@ -1,0 +1,212 @@
+---
+title: "Assignment 2"
+author: "Samuel Abächerli (14-610-208)"
+date: "3/24/2019"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=12, fig.height=8)
+```
+
+# Assignment 2: Fixed Rate and Adjustable Rate Mortgages 
+
+Please send your solutions to this assignment in a pdf or html file generated in R Markdown to zeno.adams@unisg.ch. The deadline is 4/07/2019. Please note that:  
+1. The code has to be reproducible, i.e. pasting your code in any R console should generate the output that you send me in the file.  
+2. You should comment your code to show that you have understood the commands.  
+The assignment should not take more than 5 hours to solve. If you are stuck or repeatedly get the same error message you can contact me over skype (zeno.adams). 
+
+## Problem 1
+
+The constant payment mortgage (CPM) is the most common fixed rate mortgage but not the only type of mortgage available. Another type of FRM is the so called constant amortization mortgage (CAM). The CAM addresses the problem that during the early years, the loan balance of a CPM is only marginally reduced with most of the monthly payments being interest payments. In contrast, the CAM makes a fixed amortization payment that reduces the loan balance by a fixed amount per month. Assume a maturity of 30 years, and an interest rate of 6%. Make a graph that shows the development of the CAM loan balance on the left and the principal payments, the interest payments, and the total monthly payments on the right. We have uploaded a section from Chapter 4 of Brueggeman and Fisher (2011) that briefly describes the CAM (see CAM.pdf). **(7.5 P)**
+
+```{r Problem 1}
+# given variables
+n <- 30 # years
+m <- 12 # months
+i <- 0.06 # annual interest rate
+OB <- rep(NA, n*m) # opening balance
+IP <- rep(NA, n*m) # interest payments
+MP <- rep(NA, n*m) # monthly payments
+OB[1] <- 120000 # opening balance in month 1
+AM <- OB[1] / (m * n) # amortization
+
+# determining opening balance, interest payments and total monthly payments
+for (j in 1:(length(OB))) {
+  OB[j+1] <- OB[j] - AM
+  IP[j] <- OB[j] * (i / m)
+  MP[j] <- AM + IP[j]
+}
+
+# plotting the graphs
+par(mfrow = c(1,2)) # partitioning with one row and two colums
+plot(OB, type = "l", col = "darkblue", lwd = 2,
+     xlab = "Month", ylab = "Loan Balance", main = "CAM Loan Balance")
+plot(IP, type = "l", col = "darkblue", lwd = 2, ylim = c(0,800), 
+     xlab = "Month", ylab = "Payments in CHF", main = "CAM Payments")
+abline(h = AM, col = "darkred", lwd = 2)
+lines(MP, col = "black", lwd = 2, lty = 2)
+legend("topright", c("Interest Payments", "Principal Payments", "Total Payments"),
+    col = c("darkblue", "darkred", 1), lty = c(1, 1, 2), lwd = 2, inset = 0.02,
+    bg = "antiquewhite1")
+
+```
+
+
+## Problem 2
+
+In the tutorial we have explored the payment cap mortgage. Another type of adjustable rate mortgage is the so called interest rate cap mortgage. This type of mortgage is more benign as the costs of the borrower are actually reduced by the cap. The interest cap mortgage does not allow for negative amortization. You can take the settings from the ARM example in the tutorial (3 month Treasury Bill rate between 1970-01-01 and 1999-12-01) to compute the loan balance, the monthly payments and its constituents for an interest cap mortgage that has a cap at 12% (i.e the interest on the mortgage cannot increase beyond 12%) and a floor at 6% (i.e., the interest cannot fall below 6%). Compare your results with that of the payment cap mortgage. **(7.5 P)**  
+
+```{r Variables, include=FALSE}
+library(quantmod)
+getSymbols("TB3MS", src = "FRED") # 3 month Treasury Bill rate
+index <- TB3MS["1970-01-01::1999-12-01"] # between 1970-01-01 and 1999-12-01
+margin <- 0.02 # charged by the bank for default risk
+c.rate <- index/100 + margin # composite rate (index + margin)
+n <- 30 # years
+m <- 12 # months
+PV <- 120000 # present value
+```
+
+### Cap and floor applied to interest payments only, and not to the mlc  
+```{r Interest Rate Cap Mortgage excluding mlc}
+# IRCM specific variables
+cap <- 0.12 # the interest on the mortgage cannot increase beyond 12%
+floor <- 0.06 # the interest cannot fall below 6%
+
+# preparing the variables
+mlc <- 1/sum(sapply(1:(n*m), function(t) 1/(1+c.rate[1]/m)^t)) # mortgage loan constant
+mp <- numeric(n*m) ; mp[1] <- PV*mlc # monthly payments
+lb.b <-  numeric(n*m) ; lb.b[1] <- PV # loan balance beginning of year
+ip <- numeric(n*m) ; ip[1] <- lb.b[1] * (c.rate[1] / m) # interest payments
+pr <- numeric(n*m) ; pr[1] <- mp[1] - ip[1] # principal reduction
+lb.e <- numeric(n*m); lb.e[1] <- lb.b[1] - pr[1] # loan balance end of month
+
+# calculating the balance and payments
+for (j in 2:(n*m)) {
+  mlc <- 1/sum(sapply(1:(n*m-j+1), function(t) 1/(1+c.rate[j]/m)^t))
+  lb.b[j] <- lb.e[j-1]
+  mp[j] <- lb.b[j] * mlc
+  # check if payment needs to be capped
+  if (c.rate[j] > cap) {
+    ip[j] <- lb.b[j] * ( cap / m)
+  } else if (c.rate[j] < floor) {
+    ip[j] <- lb.b[j] * ( floor / m)
+  } else {
+    ip[j] <- lb.b[j] * (c.rate[j] / m)
+  }
+  pr[j] <- mp[j] - ip[j]
+  lb.e[j] <- lb.b[j] - pr[j]
+}
+
+# plotting the graphs
+par(mfrow = c(1,2)) # make a plot with one row and 2 columns
+plot(lb.b, type = "l", col = "darkblue", lwd = 2, 
+     xlab = "Month", ylab = "Loan Balance", main = "IRCM Balance")
+plot(ip, type = "l", col = "darkblue", lwd = 2, ylim = c(-800,2600), 
+     ylab = "Monthly Payments", xlab = "Month", main = "IRCM Payments")
+lines(pr, col = "darkred", lwd = 2)
+lines(mp, lwd = 2, lty = 2)
+legend("topleft", c("Interest", "Principal", "Total Payments"), 
+       col = c("darkblue","darkred",1), lty = c(1,1,2), lwd = c(2,2,3), inset = 0.02,
+       bg = "antiquewhite1")
+```
+This version results in a higher default probability due to the payment shocks that are experienced by the borrower. However, the is no negative amortization, which is a reason for a higher default probability in the payment capped mortgage.  
+
+### Cap and floor applied to mlc as well as interest payments  
+```{r Interest Rate Cap Mortgage including mlc}
+# IRCM specific variables
+cap <- 0.12 # the interest on the mortgage cannot increase beyond 12%
+floor <- 0.06 # the interest cannot fall below 6%
+
+# preparing the variables
+mlc <- 1/sum(sapply(1:(n*m), function(t) 1/(1+c.rate[1]/m)^t)) # mortgage loan constant
+mp <- numeric(n*m) ; mp[1] <- PV*mlc # monthly payments
+lb.b <-  numeric(n*m) ; lb.b[1] <- PV # loan balance beginning of year
+ip <- numeric(n*m) ; ip[1] <- lb.b[1] * (c.rate[1] / m) # interest payments
+pr <- numeric(n*m) ; pr[1] <- mp[1] - ip[1] # principal reduction
+lb.e <- numeric(n*m); lb.e[1] <- lb.b[1] - pr[1] # loan balance end of month
+
+# calculating the balance and payments
+for (j in 2:(n*m)) {
+  # check if payment needs to be capped
+  if (c.rate[j] > cap) {
+    mlc <- 1/sum(sapply(1:(n*m-j+1), function(t) 1/(1 + cap/m)^t))
+    lb.b[j] <- lb.e[j-1]
+    mp[j] <- lb.b[j] * mlc
+    ip[j] <- lb.b[j] * ( cap / m)
+  } else if (c.rate[j] < floor) {
+    mlc <- 1/sum(sapply(1:(n*m-j+1), function(t) 1/(1 + floor/m)^t))
+    lb.b[j] <- lb.e[j-1]
+    mp[j] <- lb.b[j] * mlc
+    ip[j] <- lb.b[j] * ( floor / m)
+  } else {
+    mlc <- 1/sum(sapply(1:(n*m-j+1), function(t) 1/(1 + c.rate[j]/m)^t))
+    lb.b[j] <- lb.e[j-1]
+    mp[j] <- lb.b[j] * mlc
+    ip[j] <- lb.b[j] * (c.rate[j] / m)
+  }
+  pr[j] <- mp[j] - ip[j]
+  lb.e[j] <- lb.b[j] - pr[j]
+}
+
+# plotting the graphs
+par(mfrow = c(1,2)) # make a plot with one row and 2 columns
+plot(lb.b, type = "l", col = "darkblue", lwd = 2, 
+     xlab = "Month", ylab = "Loan Balance", main = "IRCM.mlc Balance")
+plot(ip, type = "l", col = "darkblue", lwd = 2, ylim = c(-800,2600), 
+     ylab = "Monthly Payments", xlab = "Month", main = "IRCM.mlc Payments")
+lines(pr, col = "darkred", lwd = 2)
+lines(mp, lwd = 2, lty = 2)
+legend("topleft", c("Interest", "Principal", "Total Payments"), 
+       col = c("darkblue","darkred",1), lty = c(1,1,2), lwd = c(2,2,3), inset = 0.02,
+       bg = "antiquewhite1")
+```
+This version reduces the default probability as the maximal payments are limited to an upper and lower bound. However, as the lender is carrying more interest rate risk in an environment where interest rates are expected to rise beyond the cap, the mortgage rate may, in practice, be higher compared to an uncapped mortgage. In an environment where interest rates are expected to fall below the floor, the lender benefits and thus may set a lower interest rate.  
+
+### Payment capped mortgages with negative amortization  
+```{r Payment Cap Mortgage}
+# PCM specific variables
+g <- 0.005 # payment growth is capped at 0.5% per month
+
+# preparing the variables
+mlc <- 1/sum(sapply(1:(n*m), function(t) 1/(1+c.rate[1]/m)^t)) # mortgage loan constant
+mp <- numeric(n*m) ; mp[1] <- PV*mlc # monthly payments
+lb.b <-  numeric(n*m) ; lb.b[1] <- PV # loan balance beginning of year
+ip <- numeric(n*m) ; ip[1] <- lb.b[1] * (c.rate[1] / m) # interest payments
+pr <- numeric(n*m) ; pr[1] <- mp[1] - ip[1] # principal reduction
+mp.capped <- numeric(n*m) ; mp.capped[1] <- mp[1] # monthly payments capped at 0.5%
+lb.e <- numeric(n*m); lb.e[1] <- lb.b[1] - pr[1] # loan balance end of month
+
+# calculating the balance and payments
+for (j in 2:(n*m)) {
+  mlc <- 1/sum(sapply(1:(n*m-j+1), function(t) 1/(1+c.rate[j]/m)^t))
+  lb.b[j] <- lb.e[j-1]
+  mp[j] <- lb.b[j] * mlc
+  mp.capped[j] <- (1+g)*mp[j-1] # calculate the capped payment
+  # check if payment needs to be capped
+  if (mp[j] > mp.capped[j]) {
+    mp[j] <- mp.capped[j]
+  }
+  ip[j] <- lb.b[j] * (c.rate[j] / m)
+  pr[j] <- mp[j] - ip[j]
+  lb.e[j] <- lb.b[j] - pr[j]
+}
+
+# plotting the graphs
+par(mfrow = c(1,2)) # make a plot with one row and 2 columns
+plot(lb.b, type = "l", col = "darkblue", lwd = 2,
+     xlab = "Month", ylab = "Loan Balance", main = "NAM Balance")
+plot(ip, type = "l", col = "darkblue", lwd = 2, ylim = c(-800,2600),
+     ylab = "Monthly Payments", xlab = "Month", main = "NAM Payments")
+lines(pr, col = "darkred", lwd = 2)
+lines(mp, lwd = 2, lty = 2)
+legend("topleft", c("Interest", "Principal","Total Payments"), col = c("darkblue","darkred",1),
+       lty = c(1,1,2), lwd = c(2,2,3), inset = 0.02,
+       bg = "antiquewhite1")
+```
+This version smoothens out the payments significantly compared to the other two versions, but if the loan balance increases faster than the house price, the house may no longer be enough collateral and thus default risk will rise. The negative amortization also results in higher average payments as the interest on the outstanding loan in absolute terms increases.

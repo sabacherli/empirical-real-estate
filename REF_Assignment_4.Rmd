@@ -1,0 +1,566 @@
+---
+title: "Assignment4"
+author: "Samuel Abächerli (14-610-208)"
+date: "5/30/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = TRUE)
+```
+
+## R Markdown
+
+### Assignment 4: Modeling Office Rent Cylces
+Please send your solutions to this assignment in a pdf or html file generated in R Markdown
+to zeno.adams@unisg.ch. The deadline is 6/9/2019. Please note that:
+
+1. The code has to be reproducible, i.e. pasting your code in any R console should
+generate the output that you send me in the file.
+
+2. You should comment your code to show that you have understood the commands.
+The assignment should not take more than 5 hours to solve. If you are stuck or repeatedly get
+the same error message you can contact me over email or skype (zeno.adams).
+
+
+### Problem 1 **(15 P)**
+
+In the tutorial, we have seen a variation of the Geltner Rent Cycle model. The model produces
+interesting forecasts but is rarely used in practice because it is inherently unstable. Your task
+in this assignment will be to improve or change the model in an interesting way. In the
+following some suggestions what you can do. Feel free to modify the model in any other way
+not listed here. Points will be provided based on difficulty, creativity, and practical usefulness.
+
+- Apply the model from the tutorial to the other cities in the sample and comment on the
+different forecasting behavior. *(difficulty: easy)*
+
+- Estimate different model specifications for the construction, occupied stock, and rent
+equation to investigate the stability of the model with respect to changes in the
+parameters. Which parameter has the largest impact on the model dynamics?
+*(difficulty: medium)*
+
+- Investgate different growth paths for office employment. Try to introduce a realistic
+error term into employment growth that gets reflected in the dynamics of the other
+variables. *(difficulty: medium)*
+
+- Estimate the OLS equations in logs rather than levels. How does the interpretation
+change and what problems arise in this case? *(difficulty: medium)*
+
+- Try to get data on the office market of another city and forecats office rents, vacancies,
+construction, and the office stock. *(difficulty: hard)*. 
+Hint: you could try for instance http://www.censtatd.gov.hk/hkstat/
+
+- Add error bands to your forecast using the uncertainty in the parameter estimates.
+*(difficulty: serious)*
+
+- Increase the stability of the model by estimating all three equations in a maximum
+likelihood framework. *(difficulty: badass)*
+
+```{r Prepare Environment}
+rm(list = ls())  # remove all objects from the environment
+gc(full = TRUE)  # collect garbage to clear up memory used by R; may prompt R to return memory to the operating system
+options(scipen = 10, digits = 4)  # penalize R for using scientific notation limited to the number of digits specified
+```
+
+
+```{r Packages, message=FALSE, warning=FALSE, paged.print=FALSE}
+# ------------------------------------------------------------------------------
+# PACKAGES
+# ------------------------------------------------------------------------------
+# install.packages("lattice")
+library(lattice)  # used to create panel histograms
+# install.packages("GGally")
+library(GGally)
+# install.packages("corpcor")
+library(corpcor)
+# install.packages("mctest")
+library(mctest)
+# install.packages("ppcor")
+library(ppcor)
+# install.packages("bbmle")
+library(bbmle)  # includes the option of not inverting the Hessian Matrix 
+```
+
+
+### Data
+
+```{r Data}
+# ------------------------------------------------------------------------------
+# DATA
+# ------------------------------------------------------------------------------
+
+# read in the data from the .txt file with header from the same folder as the .rmd file is located
+dat1 <- read.table("./GermanCities.txt", header = TRUE)
+
+# stock is office stock in sqm
+# v is the vacancy rate
+# rent is the average monthly office rent in Euro per sqm
+# off.emp is office employment
+# gva is gross value added (like GDP but on city level)
+# o is occupancy rate
+# os is occupied stock (o*stock)
+# c is construction
+# rent.eq is the equilibirum rent estimated here as the sample average
+# v.eq is the the equilibrium vacancy rate here as the sample average
+# v.dev is the percentage deviation of the vacancy rate from the equilibrium: v.dev = (v - v.eq)/v.eq
+
+# create a data set of explanatory variables omitting all NA entries
+dat2 <- na.omit(dat1[,c(3:length(dat1))])
+
+# historgram of the construction, occupied stock and rents in the different cities
+# par(mfrow=c(3,1))
+# histogram(~ dat1$c | dat1$City, data = dat1, panel = lattice.getOption("panel.histogram"), type = "count", breaks = 20, xlab = "Construction")
+# histogram(~ dat1$os | dat1$City, data = dat1, panel = lattice.getOption("panel.histogram"), type = "count", breaks = 20, xlab = "Occupied Stock")
+histogram(~ dat1$rent | dat1$City, data = dat1, panel = lattice.getOption("panel.histogram"), type = "count", breaks = 20, xlab = "Rent")
+```
+
+The histogram shows, that the rent levels per sqm in the different cities are closer to a normal distribution than a log-normal distribution, especially in Stuttgart, Duesseldorf and Hamburg. Hence, it is not recommended to apply a logarithmic transformation to the rent levels, as they are not highly skewed and don't seem to be log-normally distributed. A similar picture is drawn for the constuction and occupied stock variables, despite being commented out in the code (and thus not executed).
+
+However, logarithmically transforming variables in a regression model is a very common way to handle situations where a non-linear relationship exists between the independent and dependent variables. Using the logarithm of one or more variables instead of the un-logged form makes the effective relationship non-linear, while still preserving the linear model. Thus, it may be appropriate to specify the regressions as linear-log models. After analysing the levels specification, a linear-log model will be specified in attempt to improve the model, assuming there is a non-linear relationshop between the independent and dependent variables
+
+### Regressions
+
+```{r Original Level Specification}
+# ------------------------------------------------------------------------------
+# ORIGINAL LEVEL SPECIFICATIONS
+# ------------------------------------------------------------------------------
+
+# estimate construction equation
+fit.c <- lm(c ~ City + c.l1 + rent.l2 + rent.l3, data = dat1)
+summary(fit.c)
+anova(fit.c)
+c0 <- fit.c$coefficients[1]
+c1 <- fit.c$coefficients[6]
+c2 <- fit.c$coefficients[7]
+c3 <- fit.c$coefficients[8]
+
+# estimate occupied stock equation:
+fit.os <- lm(os ~ City + os.l1 + off.emp, data = dat1)
+summary(fit.os)
+anova(fit.os)
+d0 <- fit.os$coefficients[1]
+d1 <- fit.os$coefficients[6]
+d2 <- fit.os$coefficients[7]
+
+# estimate Rent equation:
+fit.rent <- lm(rent ~ City + rent.l1 + rent.l2 + v.dev, data = dat1)
+summary(fit.rent)
+anova(fit.rent)
+r0 <- fit.rent$coefficients[1]
+r1 <- fit.rent$coefficients[6]
+r2 <- fit.rent$coefficients[7]
+lambda <- fit.rent$coefficients[8]
+
+# plot the model diagnostic to check for problems such as normality of error term, heteroscedasticity etc.
+par(mfrow=c(2,2))
+plot(fit.c)
+plot(fit.os)
+plot(fit.rent)
+```
+
+Keeping the original linear regression specification, we can see that for the dependent variable of construction, all three predictor variables, lagged construction and lagged (2x & 3x) rents are significant and are able to explain 60 percent of the variance.
+
+For the occupied stock, only the lagged stock is highly significant, while the office employment is significant at the 10 percent level. For both the construction as well as the occupied stock there are only insignificant differences among the cities.
+
+Regarding the rent, all predictor variables, lagged (1x & 2x) rents and the vacancy rate deviation from the natural vacancy rate, are significant in explaining the rent in the cities. Furthermore, there is insignificant difference in the rent levels in Hamburg and Düsseldorf, while Frankfurt and München are significantly more expensive and Stuttgart significantly less expensive. This can also be deduced from the histogram plotted above.
+
+The extremely high Multiple R-squared of 0.997 for the second regression specification while only one predictor variable being highly significant indicates that the regression specification might be suffering from multicollinearity. By plotting the model diagnostics we can check for problems such as normality of error term, heteroscedasticy, etc. The plots look fairly normal, i.e. the error terms seem to benormally and independently distributed with constant variance, further indicating that multicollinearity may be the reason for obtaining the insignificant regression coefficient for occupied stock. Thus, we proceed to analyse the pair-wise correlation among the dependent variables.
+
+```{r Checks for Multicollinearity, message=FALSE, paged.print=TRUE}
+# ------------------------------------------------------------------------------
+# CHECKING FOR MULTICOLLINEARITY
+# ------------------------------------------------------------------------------
+
+# pair-wise correlation among the explanatory variables
+ggpairs(dat2[,c("c.l1", "rent.l2", "rent.l3")])  # construction specification
+ggpairs(dat2[,c("os.l1", "off.emp")])  # occupied stock specification
+ggpairs(dat2[,c("v.dev", "rent.l1", "rent.l2")])  # rent specification
+
+# overall multicollinearity diagnostics
+omcdiag(dat2[,c("c.l1", "rent.l2", "rent.l3")], dat2$rent)
+omcdiag(dat2[,c("os.l1", "off.emp")], dat2$rent)
+omcdiag(dat2[,c("v.dev", "rent.l1", "rent.l2")], dat2$rent)
+```
+
+Indeed, using ggpairs() we can see a very high correlation of 0.985 between the 1x lagged occupied stock and office employment. Furthermore, using the mctest package, multiple multicolliniearity diagnostics, such as the Farrar-Glauber test, suggest a presence of multicollinearity in the model specification. The same findings are applicable to the construction specification.
+
+However, given the fact that the main purpose of the estimates are to forecast the development of construction, occupied stock and rent per sqm, and not causal inference, the large confidence intervals are of less concern, given that the forecasts remain accurate. Moreover, multicollinearity may be avoided by smart model selection. If we were to consider several other models, we would chose the model specification with the lowest AIC and BIC values, as models with higher multicollinearity tend to have higher AIC and BIC values (where higher means worse). 
+AIC and BIC are information criterias generally used to support in the model selection process, where the model with the lowest value is preferred. The following section, original linear-log specifications, also includes the AIC and BIC for the respective model specifications. Comparing the linear-log model to the simple linear model, we can see that there is only a marginal difference, where the simple linear model is slightly preferred. As subsequently shown, there are a few issues with the linear-log specification of the model.
+
+
+```{r Original Linear-Log Specification}
+# ------------------------------------------------------------------------------
+# ORIGINAL LINEAR-LOG SPECIFICATIONS
+# ------------------------------------------------------------------------------
+
+# estimate construction equation
+fit.c <- lm(c ~ City + log(c.l1) + log(rent.l2) + log(rent.l3), data = dat1)
+summary(fit.c)
+anova(fit.c)
+c0 <- fit.c$coefficients[1]
+c1 <- fit.c$coefficients[6]
+c2 <- fit.c$coefficients[7]
+c3 <- fit.c$coefficients[8]
+
+# estimate occupied stock equation:
+fit.os <- lm(os ~ City + log(os.l1) + log(off.emp), data = dat1)
+summary(fit.os)
+anova(fit.os)
+d0 <- fit.os$coefficients[1]
+d1 <- fit.os$coefficients[6]
+d2 <- fit.os$coefficients[7]
+
+# estimate Rent equation:
+fit.rent <- lm(rent ~ City + log(rent.l1) + log(rent.l2) + v.dev, data = dat1)
+summary(fit.rent)
+anova(fit.rent)
+r0 <- fit.rent$coefficients[1]
+r1 <- fit.rent$coefficients[6]
+r2 <- fit.rent$coefficients[7]
+lambda <- fit.rent$coefficients[8]
+
+# plot the model diagnostic to check for problems such as normality of error term, heteroscedasticity etc.
+par(mfrow=c(2,2))
+plot(fit.c)
+plot(fit.os)
+plot(fit.rent)
+```
+
+In the linear-log model, the literal interpretation of the estimated coefficient beta-hat is that a one-unit increase in log(X) will produce an expected increase in Y of beta-hat units. Thus, a one unit increase in log(X) would correspond to a multiplication of X itself by e = 2.72 (as log(x) + 1 = log(X) + log(e) = log(eX)). Conventionally, we interpret beta-hat / 100 approximately as the expected increase in Y from a 1% increase in X.
+
+Applying the log transformation we run into the issue, that the deviation of the vacancy rate from the natural vacancy rate can be negative and the log-function is only defined for positive values. However, v.dev being defined as the percentage deviation of the vacancy rate from the equilibrium is already a percentage variable, and thus not taking the log of v.dev leaves us with the more intuitive interpretation, that a one percentage point increase in v.dev results in a beta-hat increase in the dependent variable. Therefore, it intuitively makes sense, that the coefficient derived from the regression is negative (-0.03565), as positive values of v.dev (vacancy rate above the equilibrium) should correlate with low prices, as supply is greater than demand. However, it may still be that this relationship is not best describe by a linear relationship, which was the reason why we wanted to apply the log transformation in the first place.
+
+Another issue using the log-linear specification is that the predicted values, specifically construction in Stuttgart, may drop below zero, in which case the natural logarithm is again not defined. This produces NaN in the predicted values. Furthermore, if a condition is added to set the predicted value to zero as soon as it is predicted to be below zero (which would naturally be the case with construction, as negative construction, or demolition, usually does not occur), then despite rising rents the predicted constuction never recovers. This issue is visible in the predicted values for Stuttgart.
+
+
+### Predictions in the Different Cities
+
+```{r Düsseldorf}
+# ------------------------------------------------------------------------------
+# DÜSSELDORF
+# ------------------------------------------------------------------------------
+
+# creating the data structure
+D <- dat1[dat1$City == "Duesseldorf",]
+D2 <- as.data.frame(matrix(NA, nrow(D), ncol(D)))
+names(D2) <- names(D)
+D2$City <- "Duesseldorf"
+D2$Year <- 2012:2033
+D3 <- rbind(D,D2)
+
+# start prediction:
+g <- mean(diff(log(D3$off.emp)), na.rm = TRUE) # average growth in stock over the last years
+
+# calculate the predictions
+N <- nrow(D3)
+for (i in 23:N) {
+  D3$c[i] <- c0 + c1*log(D3$c[i-1]) + c2*log(D3$rent[i-2]) + c3*log(D3$rent[i-3])
+  D3$stock[i] <- D3$stock[i-1] + D3$c[i]
+  D3$off.emp[i] <- (1+g)*D3$off.emp[i-1]  # + rnorm(1, mean = 0, sd = 1*sd(D3$off.emp, na.rm = TRUE))
+  D3$os[i] <- d0 + d1*log(D3$os[i-1]) + d2*log(D3$off.emp[i])
+  D3$v[i] <- (D3$stock[i] - D3$os[i])/D3$stock[i]
+  D3$rent[i] <- r0 + r1*log(D3$rent[i-1]) + r2*log(D3$rent[i-2]) + lambda*(D3$v[i]/D3$v.eq[1] - 1)
+}
+
+
+# plotting the data with the predictions in red
+date <- as.character(D3$Year)
+par(mfrow = c(2,2))
+plot(D3$rent, lwd = 2, col = ifelse(D3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Rent")
+# polygon(c(X, rev(X)),c(Y_Lowerbound, rev(Y_Upperbound)), col="salmon", border =NA)
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(D3$v, lwd = 2, col = ifelse(D3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Vacancy")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(D3$stock, lwd = 2, col = ifelse(D3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Stock")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+lines(D3$os, lwd = 2, lty = 2, col = 3)
+plot(D3$c, lwd = 2, col = ifelse(D3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Construction")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+title("Düsseldorf", line = -1, outer = TRUE)
+```
+
+
+```{r Frankfurt}
+# ------------------------------------------------------------------------------
+# FRANKFURT
+# ------------------------------------------------------------------------------
+
+# creating the data structure
+F <- dat1[dat1$City == "Frankfurt",]
+F2 <- as.data.frame(matrix(NA, nrow(F), ncol(F)))
+names(F2) <- names(F)
+F2$City <- "Frankfurt"
+F2$Year <- 2012:2033
+F3 <- rbind(F,F2)
+
+# start prediction:
+g <- mean(diff(log(F3$off.emp)), na.rm = TRUE) # average growth in stock over the last years
+
+# calculate the predictions
+N <- nrow(F3)
+for (i in 23:N) {
+  F3$c[i] <- c0 + c1*log(F3$c[i-1]) + c2*log(F3$rent[i-2]) + c3*log(F3$rent[i-3])
+  F3$stock[i] <- F3$stock[i-1] + F3$c[i]
+  F3$off.emp[i] <- (1+g)*F3$off.emp[i-1]  # + rnorm(1, mean = 0, sd = 1*sd(F3$off.emp, na.rm = TRUE))
+  F3$os[i] <- d0 + d1*log(F3$os[i-1]) + d2*log(F3$off.emp[i])
+  F3$v[i] <- (F3$stock[i] - F3$os[i])/F3$stock[i]
+  F3$rent[i] <- r0 + r1*log(F3$rent[i-1]) + r2*log(F3$rent[i-2]) + lambda*(F3$v[i]/F3$v.eq[1] - 1)
+}
+
+# plotting the data with the predictions in red
+date <- as.character(F3$Year)
+par(mfrow = c(2,2))
+plot(F3$rent, lwd = 2, col = ifelse(F3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Rent")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(F3$v, lwd = 2, col = ifelse(F3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Vacancy")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(F3$stock, lwd = 2, col = ifelse(F3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Stock")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+lines(F3$os, lwd = 2, lty = 2, col = 3)
+plot(F3$c, lwd = 2, col = ifelse(F3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Construction")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+title("Frankfurt", line = -1, outer = TRUE)
+```
+
+
+```{r Hamburg}
+# ------------------------------------------------------------------------------
+# HAMBURG
+# ------------------------------------------------------------------------------
+
+# creating the data structure
+H <- dat1[dat1$City == "Hamburg",]
+H2 <- as.data.frame(matrix(NA, nrow(H), ncol(H)))
+names(H2) <- names(H)
+H2$City <- "Hamburg"
+H2$Year <- 2012:2033
+H3 <- rbind(H,H2)
+
+
+# start prediction:
+g <- mean(diff(log(H3$off.emp)), na.rm = TRUE) # average growth in stock over the last years
+
+# calculate the predictions
+N <- nrow(H3)
+for (i in 23:N) {
+  H3$c[i] <- c0 + c1*log(H3$c[i-1]) + c2*log(H3$rent[i-2]) + c3*log(H3$rent[i-3])
+  H3$stock[i] <- H3$stock[i-1] + H3$c[i]
+  H3$off.emp[i] <- (1+g)*H3$off.emp[i-1]  # + rnorm(1, mean = 0, sd = 1*sd(H3$off.emp, na.rm = TRUE))
+  H3$os[i] <- d0 + d1*log(H3$os[i-1]) + d2*log(H3$off.emp[i])
+  H3$v[i] <- (H3$stock[i] - H3$os[i])/H3$stock[i]
+  H3$rent[i] <- r0 + r1*log(H3$rent[i-1]) + r2*log(H3$rent[i-2]) + lambda*(H3$v[i]/H3$v.eq[1] - 1)
+}
+
+# plotting the data with the predictions in red
+date <- as.character(H3$Year)
+par(mfrow = c(2,2))
+plot(H3$rent, lwd = 2, col = ifelse(H3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Rent")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(H3$v, lwd = 2, col = ifelse(H3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Vacancy")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(H3$stock, lwd = 2, col = ifelse(H3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Stock")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+lines(H3$os, lwd = 2, lty = 2, col = 3)
+plot(H3$c, lwd = 2, col = ifelse(H3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Construction")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+title("Hamburg", line = -1, outer = TRUE)
+```
+
+
+```{r München}
+# ------------------------------------------------------------------------------
+# MUENCHEN
+# ------------------------------------------------------------------------------
+
+# creating the data structure
+M <- dat1[dat1$City == "Muenchen",]
+M2 <- as.data.frame(matrix(NA, nrow(M), ncol(M)))
+names(M2) <- names(M)
+M2$City <- "Muenchen"
+M2$Year <- 2012:2033
+M3 <- rbind(M,M2)
+
+
+# start prediction:
+g <- mean(diff(log(M3$off.emp)), na.rm = TRUE) # average growth in stock over the last years
+
+# calculate the predictions
+N <- nrow(M3)
+for (i in 23:N) {
+  M3$c[i] <- c0 + c1*log(M3$c[i-1]) + c2*log(M3$rent[i-2]) + c3*log(M3$rent[i-3])
+  M3$stock[i] <- M3$stock[i-1] + M3$c[i]
+  M3$off.emp[i] <- (1+g)*M3$off.emp[i-1]  # + rnorm(1, mean = 0, sd = 1*sd(M3$off.emp, na.rm = TRUE))
+  M3$os[i] <- d0 + d1*log(M3$os[i-1]) + d2*log(M3$off.emp[i])
+  M3$v[i] <- (M3$stock[i] - M3$os[i])/M3$stock[i]
+  M3$rent[i] <- r0 + r1*log(M3$rent[i-1]) + r2*log(M3$rent[i-2])  + lambda*(M3$v[i]/M3$v.eq[1] - 1)
+}
+
+# plotting the data with the predictions in red
+date <- as.character(M3$Year)
+par(mfrow = c(2,2))
+plot(M3$rent, lwd = 2, col = ifelse(M3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Rent")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(M3$v, lwd = 2, col = ifelse(M3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Vacancy")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(M3$stock, lwd = 2, col = ifelse(M3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Stock")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+lines(M3$os, lwd = 2, lty = 2, col = 3)
+plot(M3$c, lwd = 2, col = ifelse(M3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Construction")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+title("Muenchen", line = -1, outer = TRUE)
+```
+
+
+```{r Stuttgart}
+# ------------------------------------------------------------------------------
+# STUTTGART
+# ------------------------------------------------------------------------------
+
+# creating the data structure
+S <- dat1[dat1$City == "Stuttgart",]
+S2 <- as.data.frame(matrix(NA, nrow(S), ncol(S)))
+names(S2) <- names(S)
+S2$City <- "Stuttgart"
+S2$Year <- 2012:2033
+S3 <- rbind(S,S2)
+
+
+# start prediction:
+g <- mean(diff(log(S3$off.emp)), na.rm = TRUE) # average growth in stock over the last years
+
+# calculate the predictions
+N <- nrow(S3)
+for (i in 23:N) {
+  if (c0 + c1*log(S3$c[i-1]) + c2*log(S3$rent[i-2]) + c3*log(S3$rent[i-3]) < 0) {
+    S3$c[i] <- 0
+  } else {
+    S3$c[i] <- c0 + c1*log(S3$c[i-1]) + c2*log(S3$rent[i-2]) + c3*log(S3$rent[i-3])
+  }
+  S3$stock[i] <- S3$stock[i-1] + S3$c[i]
+  S3$off.emp[i] <- (1+g)*S3$off.emp[i-1]  # + rnorm(1, mean = 0, sd = 1*sd(S3$off.emp, na.rm = TRUE))
+  S3$os[i] <- d0 + d1*log(S3$os[i-1]) + d2*log(S3$off.emp[i])
+  S3$v[i] <- (S3$stock[i] - S3$os[i])/S3$stock[i]
+  S3$rent[i] <- r0 + r1*log(S3$rent[i-1]) + r2*log(S3$rent[i-2]) + lambda*(S3$v[i]/S3$v.eq[1] - 1)
+}
+
+# plotting the data with the predictions in red
+date <- as.character(S3$Year)
+par(mfrow = c(2,2))
+plot(S3$rent, lwd = 2, col = ifelse(S3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Rent")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(S3$v, lwd = 2, col = ifelse(S3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Vacancy")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+plot(S3$stock, lwd = 2, col = ifelse(S3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Stock")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+lines(S3$os, lwd = 2, lty = 2, col = 3)
+plot(S3$c, lwd = 2, col = ifelse(S3$Year > 2011, "red", "black"), type = "b", xaxt = "n", xlab = "", ylab = "",
+main = "Construction")
+axis(1, at = c(1,15,30,44), labels = c(date[1],date[15],date[30],date[44]))
+title("Stuttgart", line = -1, outer = TRUE)
+```
+
+
+### Maximum Likelihood Estamation
+
+```{r Maximum Likelihood Function, message=FALSE, warning=FALSE}
+# ------------------------------------------------------------------------------
+# MAXIMUM LIKELIHOOD ESTIMATION
+# ------------------------------------------------------------------------------
+
+# construction maximum likelihood estimation
+y <- as.matrix(dat2$c)
+colnames(y) <- "Construction"
+
+X <- as.matrix(cbind(1, dat2$c.l1, dat2$rent.l2, dat2$rent.l3))
+colnames(X) <- c("Intercept", "Lagged (1) Construction", "Lagged (2) Rent", "Lagged (3) Rent")
+n <- nrow(X)
+
+LL.c <- function(theta, y, X) {
+  b <- theta[1:4]
+  sigma <- theta[5]
+  logl <- -(n/2)*log(2*pi) - (n/2)*log(sigma) - (1/(2*sigma))*crossprod((y - X %*% b),(y -  X %*% b))
+  return(-logl)
+}
+
+mle.c <- optim(c(70000,0,50000,-30000,1000000), LL.c, y = y, X = X, method = "BFGS", control = list(maxit = 1000000))
+mle.c
+
+# OLS estimates for the parameters
+b <- tcrossprod(solve(crossprod(X,X)),X) %*% y; b
+
+# MLE estimate for the variance
+s <- crossprod((y - X %*% b),(y - X %*% b))/n; print(paste0("Variance: ", s[1,1]))
+
+
+# occupied stock maximum likelihood estimation
+y <- as.matrix(dat2$os)
+colnames(y) <- "Occupied Stock"
+
+X <- as.matrix(cbind(1, dat2$os.l1, dat2$off.emp))
+colnames(X) <- c("Intercept", "Lagged (1) Occupied Stock", "Office Employment")
+n <- nrow(X)
+
+LL.os <- function(theta, y, X) {
+  b <- theta[1:3]
+  sigma <- theta[4]
+  logl <- -(n/2)*log(2*pi) - (n/2)*log(sigma) - (1/(2*sigma))*crossprod((y - X %*% b),(y -  X %*% b))
+  return(-logl)
+}
+
+mle.os <- optim(c(100000,1,1,1), LL.os, y = y, X = X, method = "BFGS", control = list(maxit = 1000000))
+mle.os
+
+# OLS estimates for the parameters
+b <- tcrossprod(solve(crossprod(X,X)),X) %*% y; b
+
+# MLE estimate for the variance
+s <- crossprod((y - X %*% b),(y - X %*% b))/n; print(paste0("Variance: ", s[1,1]))
+
+
+# rent maximum likelihood estimation
+y <- as.matrix(dat2$rent)
+colnames(y) <- "Rent"
+
+X <- as.matrix(cbind(1, dat2$rent.l1, dat2$rent.l2, dat2$v.dev))
+colnames(X) <- c("Intercept", "Lagged (1) Rent", "Lagged (2) Rent", "Vacancy Deviation")
+n <- nrow(X)
+
+LL.rent <- function(theta, y, X) {
+  b <- theta[1:4]
+  sigma <- theta[5]
+  logl <- -(n/2)*log(2*pi) - (n/2)*log(sigma) - (1/(2*sigma))*crossprod((y - X %*% b),(y -  X %*% b))
+  return(-logl)
+}
+
+mle.rent <- optim(c(2,1,1,1,0.5), LL.rent, y = y, X = X, method = "BFGS", control = list(maxit = 1000000))
+mle.rent
+
+# OLS estimates for the parameters
+b <- tcrossprod(solve(crossprod(X,X)),X) %*% y; b
+
+# MLE estimate for the variance
+s <- crossprod((y - X %*% b),(y - X %*% b))/n; print(paste0("Variance: ", s[1,1]))
+```
+
+In theory, the maximum likelihood parameter estimates should be identical to the least squares parameter estimates in the multiple regression model (given that the errors belong to a normal distribution). However, in practice, the two methods to estimating the parameters will only match if the variables are of similar size for the maximum likelihood estimation (due to imprecisions in the optimization methods). This can be seen by comparing the OLS estimated and the MLE estimates for the rents per sqm and the other two specifications. For the former, the variables are all of similar size, and consequently, the MLE estimates nearly perfectly match the OLS estimates. For the other two specifications, larger difference exist between the variables, and hence the estimates vary by quite a large margin.
+
+The convergence parameter in the mle output indicates whether the model was able to converge, where 0 indicates sucess. For all three models the optimizer was able to converge successfully. While the MLE estimator for the variance is biased, it is consistent and asymptotically efficient. It corresponds to the in-sample mean squared error.

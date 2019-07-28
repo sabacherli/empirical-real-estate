@@ -1,0 +1,153 @@
+---
+title: "Assignment3"
+author: "Samuel Abächerli (14-610-208)"
+date: "4/30/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(kableExtra)
+```
+
+## Assignment 3: Mortgage Pools and Real Estate Derivatives
+
+Please send your solutions to this assignment in a pdf or html file generated in R Markdown to zeno.adams@unisg.ch. The deadline is 5/08/2019. Please note that:  
+  
+1. The code has to be reproducible, i.e. pasting your code in any R console should generate the output that you send me in the file.  
+2. You should comment your code to show that you have understood the commands.  
+  
+The assignment should not take more than 5 hours to solve. If you are stuck or repeatedly get the same error message you can contact me over email or skype (zeno.adams).
+
+### Problem 1
+
+A mortgage bank originates a pool of 75 ten-year fixed rate mortgages with an average balance of CHF 100’000 each. The mortgages carry a coupon interest rate of 5%. The mortgage bank would like to sell the pool to FNMA. Assume monthly payments. The market interest rate that FNMA will use for the evaluation of the pool is unknown to the mortgage bank. Given the high volatility of past market rates, the bank concludes that any value between 1% and 4% is possible. In addition, the mortgage bank is aware of a dependency between market interest rates and prepayment rates. It has observed in the past that prepayment rates increase when market rates decline and vice versa. Using data on other mortgage pools, the bank estimated the following linear relationship using OLS:
+prep.rate = 0.03 - 0.06 · market.rate.  
+  
+a) Simulate the mortgage pool price for various market interest rates and various prepayment rates as a funtion of market interest rates and plot the kernel density of the pool prices. **(7.5 P)**  
+  
+*Hint 1: Use a uniform distribution to model the market interest rate. Type ?runif into the R console to learn more about its use.*  
+*Hint 2: The resulting distribution for the pool prices is a common 2-d plot and not the 3-d plot that we used in our last tutorial for the sensitivity analysis. However, you might want to borrow some of the code structure that we used in the sensitivity analysis.*  
+
+```{r Kernel density of the pool prices}
+N <- 1000 # number of market rates and prepayment rates
+market.rate <- runif(n = N, min = 0.01, max = 0.04)
+prep.rates <- 0.03 - 0.06*market.rate
+pool.price <- rep(0,N) # the market rates in the rows and the prepayment rates in the columns
+for (k in 1:N) { # start the prepament rates loop
+  n <- 10 # 10 periods
+  m <- 12
+  PV <- 7500000
+  i <- 0.05
+  mlc <- 1/sum(sapply(1:(n*m), function(t) 1/(1+i/m)^t)) # mortgage loan constant
+  lb.b <-  numeric(n) ; lb.b[1] <- PV # initial mortgage pool
+  mp <- numeric(n*m) ; mp[1] <-  lb.b[1]*mlc; mp[1] # monthly payments
+  ip <- numeric(n*m) ; ip[1] <- i/m*lb.b[1] # interest payments
+  pr <- numeric(n*m) ; pr[1] <- mp[1] - ip[1] # principal reduction
+  prep <- numeric(n*m) ; prep[1] <- prep.rates[k]*lb.b[1] # monthly prepayment: some fraction of loan balance
+  total.p.and.i <- numeric(n*m) # principal + interest + prepayment
+  total.p.and.i[1] <- mp[1] + prep[1]
+  lb.e <-  numeric(n*m) ; lb.e[1] <- lb.b[1] - pr[1] - prep[1]
+#----- periods 2 to 10 -----
+  for (j in 2:(n*m)) {
+    mlc <- 1/sum(sapply(1:(n*m-j+1), function(t) 1/(1+i/m)^t))
+    lb.b[j] <- lb.e[j-1]
+    mp[j] <-  lb.b[j]*mlc
+    ip[j] <- i/m*lb.b[j]
+    pr[j] <- mp[j] - ip[j]
+    prep[j] <- prep.rates[k]*lb.b[j]
+    if (j == n*m) prep[j] <- 0 # no prepayments in the last month
+    total.p.and.i[j] <- mp[j] + prep[j]
+    lb.e[j] <- lb.b[j] - pr[j] - prep[j]
+  }
+  disc.rate <- sapply(1:(n*m), function(t) 1/(1+market.rate[k]/m)^t) # discount rate
+  pool.price[k] <- sum(total.p.and.i*disc.rate)
+}
+# plot kernel density
+options(scipen = 10) # supress scientific notation of large numbers
+plot(density(pool.price), xlab = "Pool Price in CHF", main = "Price of Mortgage Pool under Uncertain Market Rate")
+```
+
+b) Add the expected value of the pool price as well as upper and lower pool prices to your graph. **(2.5 P)**  
+  
+```{r Upper, mean, lower pool prices}
+# with upper and lower pool prices
+options(scipen = 10) # supress scientific notation of large numbers
+plot(density(pool.price), xlab = "Pool Price in CHF", main = "Price of Mortgage Pool under Uncertain Market Rate")
+mean.price <- round(mean(pool.price),0)
+lower.price <- round(quantile(pool.price, 0.025),0)
+upper.price <- round(quantile(pool.price, 0.975),0)
+abline(v = mean.price, col = "red", lty = 2, lwd = 2)
+abline(v = lower.price, col = "red", lty = 2, lwd = 1)
+abline(v = upper.price, col = "red", lty = 2, lwd = 1)
+legend("topleft", c(paste("Expected Price:", mean.price), paste("Lower Price:", lower.price),
+paste("Upper Price:", upper.price)), inset = 0.02, bg = "antiquewhite1")
+```
+  
+### Problem 2  
+  
+Interest Only (IO) and Principal Only (PO) strips are tranches of a CMO pool that allocate only principal or interest payments to investors (see IO_PO.pdf on StudyNet as a refresher). Compute the cash flows to investors as well as the present values of those two strips using the following information:  
+  
+· The mortgage pool balance is 1'000'000.  
+· Payments are annual with an 11% interest rate.  
+· The maturity is 10 years.  
+· Assume a constant prepayment rate of 20% per year.  
+  
+*Hint: You can check with Panel B of exhibit 20-12 to verify that your calculations are correct.* **(5 P)**
+
+```{r Interest and principal only strips}
+# GIVEN VARIABLES
+pool.balance <- 1000000
+i <- 0.11
+m <- 10
+prep.rate <- 0.20
+
+# EMPTY VARIABLES
+cf <- data.frame(balance.start = numeric(m),
+                 io = numeric(m),
+                 po = numeric(m),
+                 prepayment = numeric(m),
+                 balance.end = numeric(m))
+
+pv <- data.frame(io = numeric(1),
+                 po = numeric(1))
+
+# FIRST PERIOD
+mlc <- 1/sum(sapply(1:m, function(t) 1/(1+i)^t))
+cf$balance.start[1] <- pool.balance
+cf$io[1] <- cf$balance.start[1] * i
+cf$po[1] <- cf$balance.start[1]*mlc - cf$io[1]
+cf$prepayment[1] <- cf$balance.start[1] * prep.rate
+cf$balance.end[1] <- cf$balance.start[1] - cf$po[1] - cf$prepayment[1]
+
+pv$io <- pv$io + cf$io[1]/(1+i)^(1)
+pv$po <- pv$po + cf$po[1]/(1+i)^(1) + cf$prepayment[1]/(1+i)^(1)
+
+# REMAINING PERIODS
+for (x in 2:m) {
+  mlc <- 1/sum(sapply(1:(m-x+1), function(t) 1/(1+i)^t))
+  cf$balance.start[x] <- cf$balance.end[x-1]
+  cf$io[x] <- cf$balance.start[x] * i
+  cf$po[x] <- cf$balance.start[x]*mlc - cf$io[x]
+  if (x == m) {
+    cf$prepayment[x] <- 0
+  } else {
+    cf$prepayment[x] <- cf$balance.start[x] * prep.rate
+  }
+  cf$balance.end[x] <- cf$balance.start[x] - cf$po[x] - cf$prepayment[x]
+
+  pv$io <- pv$io + cf$io[x]/(1+i)^(x)
+  pv$po <- pv$po + cf$po[x]/(1+i)^(x) + cf$prepayment[x]/(1+i)^(x)
+}
+
+# DISPLAY TABLES
+cf %>%
+  kable() %>%
+  kable_styling()
+
+pv %>%
+  kable() %>%
+  kable_styling()
+```
+
